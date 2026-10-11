@@ -1,5 +1,7 @@
 // Tiny DOM helpers: element builder, bottom sheets, toasts, confirm.
 
+import { icon } from './icons.js';
+
 export function h(tag, attrs, ...children) {
   const [name, ...classes] = tag.split('.');
   const el = document.createElement(name || 'div');
@@ -39,9 +41,10 @@ const stack = [];
 
 export function openSheet(title, body, { onClose, full = false } = {}) {
   const panel = h('div.sheet' + (full ? '.full' : ''),
+    h('div.grabber'),
     h('div.sheet-head',
       h('h2', title),
-      h('button.icon-btn', { 'aria-label': 'Close', onclick: () => close() }, '✕')),
+      h('button.icon-btn.close-btn', { 'aria-label': 'Close', onclick: () => close() }, icon('x', 18))),
     h('div.sheet-body', body));
   const backdrop = h('div.backdrop', { onclick: e => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
@@ -120,6 +123,17 @@ export function lineChart(series, { height = 240, yLabel = '', goal = null } = {
   add('text', { x: pad.l, y: H - 6, class: 'axis' }).textContent = lab(d0);
   add('text', { x: W - pad.r, y: H - 6, 'text-anchor': 'end', class: 'axis' }).textContent = lab(d1);
   if (goal != null) add('line', { x1: pad.l, x2: W - pad.r, y1: Y(goal), y2: Y(goal), class: 'goal' });
+  // Pass 1: gradient areas, so they sit underneath every dot and line.
+  for (const s of series) {
+    const pts = [...s.points].sort((a, b) => a.x - b.x);
+    if (s.area && pts.length > 1) {
+      const gid = 'g' + Math.random().toString(36).slice(2, 8);
+      const defs = add('defs', {});
+      defs.innerHTML = `<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="area-top"/><stop offset="1" class="area-bot"/></linearGradient>`;
+      const line = pts.map((p, i) => (i ? 'L' : 'M') + X(+p.x).toFixed(1) + ' ' + Y(p.y).toFixed(1)).join(' ');
+      add('path', { d: `${line} L${X(+pts[pts.length - 1].x).toFixed(1)} ${H - pad.b} L${X(+pts[0].x).toFixed(1)} ${H - pad.b} Z`, fill: `url(#${gid})`, class: 'area' });
+    }
+  }
   for (const s of series) {
     const pts = [...s.points].sort((a, b) => a.x - b.x);
     if (s.dots !== false) for (const p of pts) add('circle', { cx: X(+p.x), cy: Y(p.y), r: s.dotR || 5, class: 'dot ' + (s.cls || '') });
@@ -131,7 +145,10 @@ export function lineChart(series, { height = 240, yLabel = '', goal = null } = {
 // Bar chart for daily values vs a target line.
 export function barChart(items, { height = 220, target = null } = {}) {
   const W = 600, H = height, pad = { l: 58, r: 12, t: 14, b: 34 };
-  const max = Math.max(1, ...items.map(i => i.y), target || 0) * 1.1;
+  // Round the axis top up to a friendly number (e.g. 3000 rather than 3058).
+  const raw = Math.max(1, ...items.map(i => i.y), target || 0) * 1.08;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw))) / 2;
+  const max = Math.ceil(raw / mag) * mag;
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);

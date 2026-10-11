@@ -2,6 +2,7 @@
 
 import { state, save, computeTargets, weightOn, toDisplayW, unit, replaceState, resetState, ymd } from './store.js';
 import { h, fill, fmt, toast, confirmSheet } from './ui.js';
+import { icon } from './icons.js';
 
 export function renderSettings(root) {
   const s = state.settings;
@@ -55,7 +56,7 @@ export function renderSettings(root) {
 
   fill(root, 
     h('section.card.form',
-      h('h3', 'Profile'),
+      h('h3', icon('user', 18), 'Profile'),
       h('div.grid2',
         h('label', 'Units', sel('units', [['lb', 'Pounds (lb)'], ['kg', 'Kilograms (kg)']])),
         h('label', 'Sex', sel('sex', [['male', 'Male'], ['female', 'Female']]))),
@@ -64,7 +65,7 @@ export function renderSettings(root) {
       h('p.small.muted', bw ? `Using your latest weigh-in: ${toDisplayW(bw)} ${unit()}` : 'Log your weight on the Food tab for accurate targets.')),
 
     h('section.card.form',
-      h('h3', 'Goal & targets'),
+      h('h3', icon('target', 18), 'Goal & targets'),
       h('div.grid2',
         h('label', 'Goal', sel('goal', [['cut', 'Lose fat'], ['maintain', 'Maintain'], ['bulk', 'Build muscle']])),
         s.goal !== 'maintain' ? h('label', 'Rate (% body weight / week)', sel('rate', [[0.25, '0.25% (slow)'], [0.5, '0.5% (moderate)'], [0.75, '0.75%'], [1, '1% (aggressive)']], Number)) : h('div')),
@@ -76,16 +77,16 @@ export function renderSettings(root) {
           h('label', 'Carbs (g)', manual.carbs), h('label', 'Fat (g)', manual.fat))),
 
     h('section.card.form',
-      h('h3', 'Training'),
+      h('h3', icon('dumbbell', 18), 'Training'),
       h('label', 'Default rest timer', sel('restSec', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [150, '2:30'], [180, '3:00'], [240, '4:00']], Number))),
 
     h('section.card.form',
-      h('h3', 'Food search'),
+      h('h3', icon('search', 18), 'Food search'),
       h('label', 'USDA API key (optional)', h('input.input', { value: s.usdaKey, placeholder: 'Uses a shared demo key if empty', onchange: e => set('usdaKey', e.target.value.trim()) })),
       h('p.small.muted', 'Generic-food search uses USDA FoodData Central. The shared demo key is rate-limited; a free personal key from api.data.gov removes the limit. Barcodes use Open Food Facts (no key needed).')),
 
     h('section.card.form',
-      h('h3', 'Your data'),
+      h('h3', icon('download', 18), 'Your data'),
       h('p.small.muted', 'Everything is stored only on this device, in this browser. Export a backup regularly — clearing browser data deletes it.'),
       h('div.row.gap',
         h('button.btn.grow', {

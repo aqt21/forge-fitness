@@ -79,7 +79,7 @@ export function generateRoutine({ days, equipment, experience = 'intermediate', 
 // Day that should come next in the rotation for a routine.
 export function nextDayIndex(routine) {
   const last = [...state.workouts].reverse().find(w => w.routineId === routine.id);
-  if (!last) return 0;
+  if (!last || !routine.days.length) return 0;
   const i = routine.days.findIndex(d => d.id === last.dayId);
   return i < 0 ? 0 : (i + 1) % routine.days.length;
 }

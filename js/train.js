@@ -3,6 +3,7 @@
 
 import { state, save, uid, ymd, toDisplayW, fromDisplayW, fmtW, unit, loadStep, historyFor, e1rm, bestE1rm } from './store.js';
 import { h, fill, fmt, openSheet, toast, confirmSheet } from './ui.js';
+import { icon } from './icons.js';
 import { EQUIPMENT, SLOTS } from './exercises.js';
 import { SPLITS, generateRoutine, getExercise, allExercises, availableFor, hasEquip, nextDayIndex } from './generator.js';
 
@@ -24,72 +25,125 @@ export function setNavigator(fn) { go = fn; }
 
 // ================= Train tab =================
 
+// Colour family for an exercise, used for its avatar badge and muscle chips.
+const CATS = {
+  push: ['h_push', 'incline_push', 'v_push', 'chest_fly', 'triceps', 'side_delt'],
+  pull: ['h_pull', 'v_pull', 'rear_delt', 'biceps'],
+  legs: ['squat', 'hinge', 'lunge', 'quad_iso', 'ham_curl', 'glute', 'calf'],
+  core: ['abs'],
+};
+export const catOf = slot => Object.keys(CATS).find(c => CATS[c].includes(slot)) || 'core';
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function exAvatar(ex, size = 'md') {
+  return h(`div.ex-avatar.${size}.cat-${catOf(ex.slot)}`, icon('dumbbell', size === 'sm' ? 16 : 20));
+}
+
+function muscleChips(exIds, max = 4) {
+  const seen = [];
+  for (const id of exIds) {
+    const ex = getExercise(id);
+    const m = ex.muscles?.[0];
+    if (m && !seen.some(s => s.m === m)) seen.push({ m, cat: catOf(ex.slot) });
+  }
+  return h('div.chips', seen.slice(0, max).map(s => h(`span.mchip.cat-${s.cat}`, cap(s.m))), seen.length > max ? h('span.mchip', `+${seen.length - max}`) : null);
+}
+
+const estMinutes = day => Math.round(day.exercises.reduce((t, e) => t + e.sets * 2.6, 0) / 5) * 5 || 0;
+
 export function renderTrain(root) {
   const routine = state.routines.find(r => r.id === state.activeRoutineId);
   const recent = [...state.workouts].reverse().slice(0, 5);
 
-  fill(root, 
-    state.active ? h('section.card.active-banner',
-      h('div.grow', h('b', state.active.name), h('div.small.muted', `In progress · started ${new Date(state.active.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`)),
-      h('button.btn', { onclick: () => go('#/workout') }, 'Resume')) : null,
+  fill(root,
+    state.active ? h('button.resume', { onclick: () => go('#/workout') },
+      h('span.pulse'),
+      h('div.grow', h('div.resume-title', state.active.name), h('div.small', 'Workout in progress — tap to resume')),
+      icon('right', 20)) : null,
 
-    routine ? currentRoutineCard(routine) : h('section.card.hero',
+    routine ? routineSection(routine) : h('section.card.hero',
+      h('div.hero-icon', icon('sparkles', 28)),
       h('h2', 'Build your program'),
-      h('p.muted', 'Tell me what equipment you have and how many days you can train — I\'ll build a full routine you can edit.'),
-      h('button.btn.wide', { onclick: openGenerator }, 'Generate a routine')),
+      h('p.muted', 'Pick your equipment and how many days you can train. You\'ll get a complete routine you can edit.'),
+      h('button.btn.wide', { onclick: openGenerator }, icon('sparkles', 18), 'Generate a routine')),
 
-    h('div.section-label', 'Routines'),
-    h('section.card.list',
-      state.routines.length ? state.routines.map(r => h('div.entry',
-        h('div.grow', { onclick: () => openRoutineEditor(r) },
-          h('div', r.name, r.id === state.activeRoutineId ? h('span.pill', 'Active') : null),
-          h('div.small.muted', `${r.days.length} day${r.days.length > 1 ? 's' : ''}/week · ${r.days.map(d => d.name).join(', ')}`)),
-        r.id !== state.activeRoutineId ? h('button.btn.ghost.sm', { onclick: () => { state.activeRoutineId = r.id; save(); } }, 'Use') : null,
-        h('button.btn.ghost.sm', { onclick: () => openRoutineEditor(r) }, 'Edit'))) : h('p.muted.pad', 'No routines yet.'),
-      h('div.row.gap.pad',
-        h('button.btn.grow', { onclick: openGenerator }, '✨ Generate'),
-        h('button.btn.ghost.grow', { onclick: () => { const r = { id: uid(), name: 'My routine', days: [{ id: uid(), name: 'Day 1', exercises: [] }], createdAt: Date.now() }; state.routines.push(r); if (!state.activeRoutineId) state.activeRoutineId = r.id; save(); openRoutineEditor(r); } }, '+ Blank'))),
-
-    h('button.btn.ghost.wide', { onclick: () => startWorkout(null, null) }, 'Start an empty workout'),
+    h('button.row-btn', { onclick: () => startWorkout(null, null) }, h('div.row-ic', icon('plus', 18)), h('span.grow', 'Start an empty workout'), icon('right', 18, 'faint')),
 
     h('div.section-label', 'Recent workouts'),
-    h('section.card.list', recent.length ? recent.map(workoutRow) : h('p.muted.pad', 'Finished workouts show up here.')),
+    recent.length ? h('section.card.flush', recent.map(workoutRow)) : h('section.card.empty', h('p.muted', 'Finished workouts show up here.')),
+
+    h('div.section-label', 'Routines'),
+    h('section.card.flush',
+      state.routines.map(r => h('div.list-row',
+        h('button.grow.row-main', { onclick: () => openRoutineEditor(r) },
+          h('div.row-title', r.name, r.id === state.activeRoutineId ? h('span.pill', 'Active') : null),
+          h('div.row-meta', `${r.days.length} day${r.days.length > 1 ? 's' : ''} / week · ${r.days.map(d => d.name).join(', ')}`)),
+        r.id !== state.activeRoutineId ? h('button.btn.soft.sm', { onclick: () => { state.activeRoutineId = r.id; save(); } }, 'Use') : null,
+        h('button.icon-btn', { 'aria-label': 'Edit routine', onclick: () => openRoutineEditor(r) }, icon('edit', 18)))),
+      h('div.card-actions',
+        h('button.btn.soft.grow', { onclick: openGenerator }, icon('sparkles', 18), 'Generate'),
+        h('button.btn.ghost.grow', { onclick: () => { const r = { id: uid(), name: 'My routine', days: [{ id: uid(), name: 'Day 1', exercises: [] }], createdAt: Date.now() }; state.routines.push(r); if (!state.activeRoutineId) state.activeRoutineId = r.id; save(); openRoutineEditor(r); } }, icon('plus', 18), 'Blank'))),
   );
 }
 
-function currentRoutineCard(routine) {
+function routineSection(routine) {
+  if (!routine.days.length) return h('section.card.hero',
+    h('h2', routine.name), h('p.muted', 'This routine has no training days yet.'),
+    h('button.btn.wide', { onclick: () => openRoutineEditor(routine) }, icon('edit', 18), 'Add days'));
   const ni = nextDayIndex(routine);
-  return h('section.card',
-    h('div.small.muted', 'Current routine'),
-    h('h2', routine.name),
-    h('div.days', routine.days.map((d, i) => h('div.day' + (i === ni ? '.next' : ''),
-      h('div.grow',
-        h('div', h('b', d.name), i === ni ? h('span.pill', 'Up next') : null),
-        h('div.small.muted', d.exercises.map(e => getExercise(e.exId).name).join(' · ') || 'No exercises')),
-      h('button.btn.sm' + (i === ni ? '' : '.ghost'), { onclick: () => startWorkout(routine, d) }, 'Start')))));
+  const next = routine.days[ni];
+  const others = routine.days.map((d, i) => ({ d, i })).filter(x => x.i !== ni);
+  const lastDone = id => { const w = [...state.workouts].reverse().find(w => w.dayId === id); return w ? new Date(w.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null; };
+
+  return [
+    h('section.card.next-card',
+      h('div.eyebrow', h('span', 'Up next'), h('span.faint', ` · ${routine.name}`)),
+      h('h2.day-title', next.name),
+      h('div.row-meta', [`${next.exercises.length} exercises`, `~${estMinutes(next)} min`, lastDone(next.id) ? `last ${lastDone(next.id)}` : null].filter(Boolean).join(' · ')),
+      muscleChips(next.exercises.map(e => e.exId)),
+      h('ol.plan', next.exercises.map((e, i) => {
+        const ex = getExercise(e.exId);
+        return h('li', h('span.plan-n', i + 1), h('span.grow', ex.name), h('span.plan-sets', `${e.sets} × ${e.reps[0]}–${e.reps[1]}`));
+      })),
+      h('button.btn.wide.big', { onclick: () => startWorkout(routine, next) }, icon('play', 18), `Start ${next.name}`)),
+    others.length ? h('div.section-label', 'Other days') : null,
+    others.length ? h('section.card.flush', others.map(({ d }) => h('div.list-row',
+      h('div.grow.row-main',
+        h('div.row-title', d.name),
+        h('div.row-meta', `${d.exercises.length} exercises · ${[...new Set(d.exercises.map(e => cap(getExercise(e.exId).muscles?.[0] || '')))].filter(Boolean).slice(0, 3).join(', ')}`)),
+      h('button.play-btn', { 'aria-label': `Start ${d.name}`, onclick: () => startWorkout(routine, d) }, icon('play', 16))))) : null,
+  ];
 }
 
 export function workoutRow(w) {
   const sets = w.entries.reduce((s, e) => s + e.sets.filter(x => x.done).length, 0);
   const mins = w.end ? Math.round((w.end - w.start) / 60000) : null;
-  return h('button.entry', { onclick: () => openWorkoutDetail(w) },
-    h('div.grow', h('div', w.name), h('div.small.muted', `${new Date(w.start).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${w.entries.length} exercises · ${sets} sets${mins ? ` · ${mins} min` : ''}`)),
-    w.prs?.length ? h('span.pill.gold', `${w.prs.length} PR`) : null);
+  const d = new Date(w.start);
+  return h('button.list-row', { onclick: () => openWorkoutDetail(w) },
+    h('div.date-badge', h('span', d.toLocaleDateString(undefined, { weekday: 'short' })), h('b', d.getDate())),
+    h('div.grow.row-main',
+      h('div.row-title', w.name),
+      h('div.row-meta', [mins ? `${mins} min` : null, `${sets} sets`, w.volume ? `${fmt(toDisplayW(w.volume))} ${unit()}` : null].filter(Boolean).join(' · '))),
+    w.prs?.length ? h('span.pill.gold', icon('trophy', 12), ` ${w.prs.length}`) : null,
+    icon('right', 18, 'faint'));
 }
 
 function openWorkoutDetail(w) {
   const s = openSheet(w.name, [
-    h('p.muted.small', new Date(w.start).toLocaleString()),
-    ...w.entries.map(en => h('div.card.inner',
-      h('b', getExercise(en.exId).name),
-      h('div.small', en.sets.filter(x => x.done).map(x => `${toDisplayW(x.w) || 0}×${x.r}`).join(', ') || '—'))),
-    w.notes ? h('p', w.notes) : null,
-    h('button.btn.danger.wide', {
+    h('p.muted.small', new Date(w.start).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })),
+    ...w.entries.map(en => {
+      const ex = getExercise(en.exId);
+      return h('div.detail-ex',
+        h('div.ex-head', exAvatar(ex, 'sm'), h('div.grow.ex-name', ex.name)),
+        h('div.detail-sets', en.sets.filter(x => x.done).map((x, i) => h('div.detail-set', h('span.set-num', i + 1), h('span', `${x.w ? `${toDisplayW(x.w)} ${unit()}` : 'BW'} × ${x.r}`)))));
+    }),
+    w.notes ? h('p.note', w.notes) : null,
+    h('button.btn.danger-soft.wide', {
       onclick: async () => {
         if (!(await confirmSheet('Delete this workout from your history?', { ok: 'Delete', danger: true }))) return;
         state.workouts = state.workouts.filter(x => x.id !== w.id); save(); s.close();
       },
-    }, 'Delete workout'),
+    }, icon('trash', 18), 'Delete workout'),
   ]);
 }
 
@@ -123,19 +177,19 @@ export function openGenerator() {
       h('div.field-label', 'Time per session'),
       seg([[45, '45 min'], [60, '60 min'], [75, '75 min'], [90, '90 min']], cfg.minutes, v => cfg.minutes = v),
 
-      h('button.btn.wide', { style: { marginTop: '16px' }, onclick: preview }, 'Build routine'));
+      h('button.btn.wide.big', { style: { marginTop: '20px' }, onclick: preview }, icon('sparkles', 18), 'Build routine'));
   }
 
   function preview() {
     const r = generateRoutine(cfg);
     fill(body, 
-      h('h3', r.name), h('p.muted.small', r.description),
-      r.missing.length ? h('p.small.warn', `Your equipment can't train: ${r.missing.map(m => SLOT_NAMES[m].toLowerCase()).join(', ')}. ${r.missing.some(m => ['h_pull', 'v_pull', 'rear_delt'].includes(m)) ? 'A pull-up bar or resistance bands would fill the pulling gap cheaply.' : ''}`) : null,
-      ...r.days.map(d => h('div.card.inner',
-        h('b', d.name),
-        h('ol.exlist', d.exercises.map(e => h('li', `${getExercise(e.exId).name}`, h('span.muted', ` — ${e.sets} × ${e.reps[0]}–${e.reps[1]}`)))))),
-      h('div.row.gap',
-        h('button.btn.ghost.grow', { onclick: draw }, '‹ Change'),
+      h('h2', r.name), h('p.muted.small', r.description),
+      r.missing.length ? h('p.small.warn.warn-box', `Your equipment can't train: ${r.missing.map(m => SLOT_NAMES[m].toLowerCase()).join(', ')}. ${r.missing.some(m => ['h_pull', 'v_pull', 'rear_delt'].includes(m)) ? 'A pull-up bar or resistance bands would fill the pulling gap cheaply.' : ''}`) : null,
+      ...r.days.map(d => h('div.card.preview-day',
+        h('div.row-title', d.name),
+        h('ol.plan', d.exercises.map((e, i) => h('li', h('span.plan-n', i + 1), h('span.grow', getExercise(e.exId).name), h('span.plan-sets', `${e.sets} × ${e.reps[0]}–${e.reps[1]}`)))))),
+      h('div.row.gap.sticky-actions',
+        h('button.btn.ghost.grow', { onclick: draw }, icon('left', 18), 'Change'),
         h('button.btn.grow', {
           onclick: () => {
             state.settings.equipment = cfg.equipment;
@@ -165,16 +219,17 @@ export function openRoutineEditor(routine) {
     fill(body, 
       h('label', 'Routine name', nameIn),
       routine.description ? h('p.small.muted', routine.description) : null,
-      ...routine.days.map((d, di) => h('div.card.inner',
-        h('div.row.gap.center',
-          h('input.input.grow.dayname', { value: d.name, onchange: e => { d.name = e.target.value.trim() || `Day ${di + 1}`; save({ silent: true }); } }),
-          h('button.icon-btn', { title: 'Move day up', disabled: di === 0, onclick: () => { move(routine.days, di, -1); draw(); } }, '↑'),
-          h('button.icon-btn.danger-text', { title: 'Delete day', onclick: async () => { if (await confirmSheet(`Delete ${d.name}?`, { ok: 'Delete', danger: true })) { routine.days.splice(di, 1); draw(); } } }, '🗑')),
+      ...routine.days.map((d, di) => h('div.card.edit-day',
+        h('div.edit-day-head',
+          h('span.day-n', di + 1),
+          h('input.input.grow.dayname', { value: d.name, 'aria-label': 'Day name', onchange: e => { d.name = e.target.value.trim() || `Day ${di + 1}`; save({ silent: true }); } }),
+          h('button.icon-btn', { 'aria-label': 'Move day up', disabled: di === 0, onclick: () => { move(routine.days, di, -1); draw(); } }, icon('up', 18)),
+          h('button.icon-btn.danger-text', { 'aria-label': 'Delete day', onclick: async () => { if (await confirmSheet(`Delete ${d.name}?`, { ok: 'Delete', danger: true })) { routine.days.splice(di, 1); draw(); } } }, icon('trash', 18))),
         ...d.exercises.map((e, ei) => exerciseEditRow(d, e, ei, draw)),
-        h('button.btn.ghost.sm', { onclick: () => pickExercise(null, ex => { d.exercises.push({ exId: ex.id, sets: 3, reps: [...ex.reps] }); draw(); }) }, '+ Add exercise'))),
-      h('button.btn.ghost.wide', { onclick: () => { routine.days.push({ id: uid(), name: `Day ${routine.days.length + 1}`, exercises: [] }); draw(); } }, '+ Add day'),
+        h('button.add-set', { onclick: () => pickExercise(null, ex => { d.exercises.push({ exId: ex.id, sets: 3, reps: [...ex.reps] }); draw(); }) }, icon('plus', 16), 'Add exercise'))),
+      h('button.row-btn.accent', { onclick: () => { routine.days.push({ id: uid(), name: `Day ${routine.days.length + 1}`, exercises: [] }); draw(); } }, h('div.row-ic', icon('plus', 18)), h('span.grow', 'Add day')),
       h('div.row.gap', { style: { marginTop: '12px' } },
-        h('button.btn.danger.grow', {
+        h('button.btn.danger-soft.grow', {
           onclick: async () => {
             if (!(await confirmSheet(`Delete routine "${routine.name}"? Your workout history is kept.`, { ok: 'Delete', danger: true }))) return;
             state.routines = state.routines.filter(r => r.id !== routine.id);
@@ -193,29 +248,31 @@ function exerciseEditRow(day, e, ei, redraw) {
   const ex = getExercise(e.exId);
   const num = (val, set, w = '3.2em') => h('input.input.num', { type: 'number', inputmode: 'numeric', value: val, style: { width: w }, onchange: ev => { set(Math.max(1, +ev.target.value || 1)); save({ silent: true }); } });
   return h('div.edit-row',
+    exAvatar(ex, 'sm'),
     h('div.grow',
-      h('div', ex.name),
-      h('div.row.gap.center.small',
+      h('div.row-title', ex.name),
+      h('div.row.gap.center.small.edit-nums',
         num(e.sets, v => e.sets = v), h('span.muted', 'sets ×'),
         num(e.reps[0], v => e.reps[0] = v), h('span.muted', '–'), num(e.reps[1], v => e.reps[1] = v), h('span.muted', 'reps'))),
-    h('div.col',
-      h('button.icon-btn', { title: 'Swap', onclick: () => pickExercise(ex.slot, nx => { e.exId = nx.id; e.reps = [...nx.reps]; redraw(); }) }, '⇄'),
-      h('button.icon-btn', { title: 'Move up', disabled: ei === 0, onclick: () => { move(day.exercises, ei, -1); redraw(); } }, '↑'),
-      h('button.icon-btn.danger-text', { title: 'Remove', onclick: () => { day.exercises.splice(ei, 1); redraw(); } }, '✕')));
+    h('div.edit-actions',
+      h('button.icon-btn', { 'aria-label': 'Replace exercise', onclick: () => pickExercise(ex.slot, nx => { e.exId = nx.id; e.reps = [...nx.reps]; redraw(); }) }, icon('swap', 18)),
+      h('button.icon-btn', { 'aria-label': 'Move up', disabled: ei === 0, onclick: () => { move(day.exercises, ei, -1); redraw(); } }, icon('up', 18)),
+      h('button.icon-btn.danger-text', { 'aria-label': 'Remove exercise', onclick: () => { day.exercises.splice(ei, 1); redraw(); } }, icon('x', 18))));
 }
 
 // Exercise picker. If `slot` is given, alternatives for that movement are listed first.
 export function pickExercise(slot, onPick) {
   let q = '', mine = state.settings.equipment.length > 0;
-  const list = h('div.list');
-  const search = h('input.input.wide', { type: 'search', placeholder: 'Search exercises or muscles', oninput: e => { q = e.target.value.toLowerCase(); draw(); } });
+  const list = h('div');
+  const search = h('input.input.wide.search-in', { type: 'search', placeholder: 'Search exercises or muscles', oninput: e => { q = e.target.value.toLowerCase(); draw(); } });
   const toggle = h('label.check', h('input', { type: 'checkbox', checked: mine, onchange: e => { mine = e.target.checked; draw(); } }), h('span', 'Only my equipment'));
   const sheet = openSheet(slot ? `Swap: ${SLOT_NAMES[slot]}` : 'Add exercise', [search, state.settings.equipment.length ? toggle : null, list,
-    h('button.btn.ghost.wide', { onclick: () => createCustomExercise(ex => { sheet.close(); onPick(ex); }) }, '+ Create custom exercise')], { full: true });
+    h('button.btn.soft.wide', { onclick: () => createCustomExercise(ex => { sheet.close(); onPick(ex); }) }, icon('plus', 18), 'Create custom exercise')], { full: true });
 
   function row(ex) {
-    return h('button.entry', { onclick: () => { sheet.close(); onPick(ex); } },
-      h('div.grow', h('div', ex.name), h('div.small.muted', `${ex.muscles.join(', ')} · ${ex.equip.length ? ex.equip.map(id => EQUIPMENT.find(x => x.id === id)?.name.split(' (')[0] || id).join(' + ') : 'Bodyweight'}`)));
+    return h('button.list-row', { onclick: () => { sheet.close(); onPick(ex); } },
+      exAvatar(ex, 'sm'),
+      h('div.grow.row-main', h('div.row-title', ex.name), h('div.row-meta', `${ex.muscles.join(', ')} · ${ex.equip.length ? ex.equip.map(id => EQUIPMENT.find(x => x.id === id)?.name.split(' (')[0] || id).join(' + ') : 'Bodyweight'}`)));
   }
   function draw() {
     const owned = state.settings.equipment;
@@ -224,7 +281,7 @@ export function pickExercise(slot, onPick) {
     const groups = slot && !q ? [slot, ...SLOTS.filter(s => s !== slot)] : SLOTS;
     fill(list, ...groups.flatMap(s => {
       const items = pool.filter(e => e.slot === s).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
-      return items.length ? [h('div.section-label', SLOT_NAMES[s] + (s === slot ? ' — alternatives' : '')), ...items.map(row)] : [];
+      return items.length ? [h('div.section-label', SLOT_NAMES[s] + (s === slot ? ' — alternatives' : '')), h('div.card.flush', items.map(row))] : [];
     }));
     if (!pool.length) fill(list, h('p.muted.pad', 'No matches.'));
   }
@@ -293,79 +350,115 @@ export function renderWorkout(root) {
   const w = state.active;
   if (!w) { location.replace('#/train'); return; }
 
-  const elapsed = h('span.muted.small');
-  const tick = () => { const m = Math.floor((Date.now() - w.start) / 60000); elapsed.textContent = `${Math.floor(m / 60) ? Math.floor(m / 60) + 'h ' : ''}${m % 60}m`; };
-  tick();
-  clearInterval(root._tick); root._tick = setInterval(() => { if (!document.body.contains(elapsed)) return clearInterval(root._tick); tick(); }, 30000);
-
   const redraw = () => renderWorkout(root);
+  const stat = (label) => { const v = h('div.wk-stat-v'); return [h('div.wk-stat', v, h('div.wk-stat-l', label)), v]; };
+  const [durEl, durV] = stat('Duration');
+  const [volEl, volV] = stat(`Volume (${unit()})`);
+  const [setEl, setV] = stat('Sets');
 
-  fill(root, 
-    h('div.workout-head',
-      h('input.input.title-input', { value: w.name, onchange: e => { w.name = e.target.value || 'Workout'; save({ silent: true }); } }),
-      elapsed),
-    ...w.entries.map((en, i) => entryCard(w, en, i, redraw)),
-    h('button.btn.ghost.wide', { onclick: () => pickExercise(null, ex => { w.entries.push(newEntry(ex.id)); save({ silent: true }); redraw(); }) }, '+ Add exercise'),
-    h('textarea.input.wide', { placeholder: 'Notes', rows: 2, value: w.notes, onchange: e => { w.notes = e.target.value; save({ silent: true }); } }),
-    h('div.row.gap', { style: { margin: '12px 0 90px' } },
-      h('button.btn.ghost.danger-text.grow', {
-        onclick: async () => {
-          if (!(await confirmSheet('Discard this workout? Nothing will be saved.', { ok: 'Discard', danger: true }))) return;
-          state.active = null; stopRest(); save(); location.replace('#/train');
-        },
-      }, 'Discard'),
-      h('button.btn.grow', { onclick: finish }, 'Finish workout')),
+  // Live header numbers (Hevy-style): duration ticks every second, volume/sets on each change.
+  function updateStats() {
+    const secs = Math.floor((Date.now() - w.start) / 1000);
+    const hh = Math.floor(secs / 3600), mm = Math.floor((secs % 3600) / 60), ss = secs % 60;
+    durV.textContent = hh ? `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${mm}:${String(ss).padStart(2, '0')}`;
+    let vol = 0, done = 0, total = 0;
+    for (const en of w.entries) for (const s of en.sets) { total++; if (s.done) { done++; vol += (s.w || 0) * (s.r || 0); } }
+    volV.textContent = fmt(toDisplayW(vol)) || '0';
+    setV.textContent = `${done}/${total}`;
+  }
+  updateStats();
+  clearInterval(root._tick);
+  root._tick = setInterval(() => { if (!document.body.contains(durV)) return clearInterval(root._tick); updateStats(); }, 1000);
+
+  fill(root,
+    h('div.wk-bar',
+      h('div.wk-bar-top',
+        h('input.title-input', { value: w.name, 'aria-label': 'Workout name', onchange: e => { w.name = e.target.value || 'Workout'; save({ silent: true }); } }),
+        h('button.btn.finish', { onclick: finish }, 'Finish')),
+      h('div.wk-stats', durEl, volEl, setEl)),
+    ...w.entries.map((en, i) => entryCard(w, en, i, redraw, updateStats)),
+    h('button.row-btn.accent', { onclick: () => pickExercise(null, ex => { w.entries.push(newEntry(ex.id)); save({ silent: true }); redraw(); }) },
+      h('div.row-ic', icon('plus', 18)), h('span.grow', 'Add exercise')),
+    h('section.card.notes',
+      h('div.field-label', 'Notes'),
+      h('textarea.input', { placeholder: 'How did it feel? Anything to remember next time?', rows: 2, value: w.notes, onchange: e => { w.notes = e.target.value; save({ silent: true }); } })),
+    h('button.btn.danger-soft.wide.discard', {
+      onclick: async () => {
+        if (!(await confirmSheet('Discard this workout? Nothing will be saved.', { ok: 'Discard', danger: true }))) return;
+        state.active = null; stopRest(); save(); location.replace('#/train');
+      },
+    }, icon('trash', 18), 'Discard workout'),
   );
   drawRest();
 }
 
-function entryCard(w, en, idx, redraw) {
+function entryCard(w, en, idx, redraw, updateStats) {
   const ex = getExercise(en.exId);
   const sug = suggestion(en.exId, en.reps);
   const best = bestE1rm(en.exId);
   const last = historyFor(en.exId)[0];
+  const count = h('span.ex-count');
+  const card = h('section.ex-card');
+  const refresh = () => {
+    const d = en.sets.filter(s => s.done).length;
+    count.textContent = `${d}/${en.sets.length}`;
+    card.classList.toggle('all-done', d === en.sets.length && d > 0);
+    updateStats();
+  };
 
-  return h('section.card.exercise',
+  const muscle = ex.muscles?.[0] ? ex.muscles[0].charAt(0).toUpperCase() + ex.muscles[0].slice(1) : null;
+  card.append(
     h('div.ex-head',
+      exAvatar(ex),
       h('div.grow',
-        h('h3', ex.name),
-        h('div.small.muted', `${en.reps[0]}–${en.reps[1]} reps${best ? ` · best e1RM ${fmtW(best)}` : ''}`)),
-      h('button.icon-btn', { title: 'Exercise options', onclick: () => exerciseMenu(w, en, idx, redraw) }, '⋯')),
-    sug ? h('div.target' + (sug.up ? '.up' : ''), h('b', `Target: ${sug.w ? `${toDisplayW(sug.w)} ${unit()}` : 'BW'} × ${sug.r}`), h('span.small', ' — ' + sug.why), h('div.small.muted', 'Last time: ' + sug.lastLine)) : h('div.target.small.muted', 'First time — pick a weight you could do for ' + (en.reps[1] + 2) + ' reps.'),
-    h('div.set-head', h('span', 'Set'), h('span', 'Previous'), h('span', unit()), h('span', 'Reps'), h('span', '')),
-    ...en.sets.map((s, si) => setRow(en, s, si, sug, last, ex)),
-    h('div.row.gap',
-      h('button.btn.ghost.sm.grow', { onclick: () => { const prev = en.sets[en.sets.length - 1]; en.sets.push({ w: prev?.w ?? null, r: null, done: false }); save({ silent: true }); redraw(); } }, '+ Set'),
-      en.sets.length > 1 ? h('button.btn.ghost.sm.grow', { onclick: () => { en.sets.pop(); save({ silent: true }); redraw(); } }, '− Set') : null));
+        h('div.ex-name', ex.name),
+        h('div.ex-meta', [muscle, `${en.reps[0]}–${en.reps[1]} reps`, best ? `best ${fmtW(best)} e1RM` : null].filter(Boolean).join(' · '))),
+      count,
+      h('button.icon-btn', { 'aria-label': 'Exercise options', onclick: () => exerciseMenu(w, en, idx, redraw) }, icon('more', 20))),
+    sug
+      ? h('div.ex-target' + (sug.up ? '.up' : ''),
+        icon(sug.up ? 'up' : 'target', 16),
+        h('div.grow', h('b', `${sug.w ? `${toDisplayW(sug.w)} ${unit()}` : 'BW'} × ${sug.r}`), h('span', ` · ${sug.why}`), h('div.target-last', `Last time: ${sug.lastLine}`)))
+      : h('div.ex-target.first', icon('info', 16), h('div.grow', `First time — pick a weight you could lift about ${en.reps[1] + 2} times.`)),
+    h('div.set-table',
+      h('div.set-head', h('span', 'Set'), h('span', 'Previous'), h('span', unit()), h('span', 'Reps'), h('span', icon('check', 14))),
+      ...en.sets.map((s, si) => setRow(en, s, si, sug, last, ex, refresh))),
+    h('button.add-set', { onclick: () => { const prev = en.sets[en.sets.length - 1]; en.sets.push({ w: prev?.w ?? null, r: null, done: false, auto: true }); save({ silent: true }); redraw(); } }, icon('plus', 16), 'Add set'));
+  refresh();
+  return card;
 }
 
-function setRow(en, s, si, sug, last, ex) {
+function setRow(en, s, si, sug, last, ex, refresh) {
   const prev = last?.sets[si];
-  const wIn = h('input.input.num', { type: 'number', inputmode: 'decimal', step: 'any', value: s.w != null ? toDisplayW(s.w) : '', placeholder: sug?.w ? toDisplayW(sug.w) : (ex.bw ? '0' : '') });
-  const rIn = h('input.input.num', { type: 'number', inputmode: 'numeric', value: s.r ?? '', placeholder: sug ? sug.r : en.reps[1] });
+  const wIn = h('input.cell', { type: 'number', inputmode: 'decimal', step: 'any', 'aria-label': `Set ${si + 1} weight`, value: s.w != null ? toDisplayW(s.w) : '', placeholder: sug?.w ? toDisplayW(sug.w) : (ex.bw ? '0' : '–') });
+  const rIn = h('input.cell', { type: 'number', inputmode: 'numeric', 'aria-label': `Set ${si + 1} reps`, value: s.r ?? '', placeholder: sug ? sug.r : en.reps[1] });
   const rowEl = h('div.set-row' + (s.done ? '.done' : ''));
   const sync = () => {
     s.w = wIn.value === '' ? null : fromDisplayW(wIn.value);
     s.r = rIn.value === '' ? null : Math.round(+rIn.value);
-    // Carry the weight down to empty sets below.
-    if (s.w != null) for (let j = si + 1; j < en.sets.length; j++) if (en.sets[j].w == null && !en.sets[j].done) en.sets[j].w = s.w;
+    save({ silent: true });
+    refresh();
+  };
+  // Carry this set's weight down to later sets that are empty or were themselves
+  // auto-filled — never over a weight you typed — and show it in their inputs.
+  const carryDown = () => {
+    let r = rowEl.nextElementSibling;
+    for (let j = si + 1; j < en.sets.length; j++, r = r?.nextElementSibling) {
+      const t = en.sets[j];
+      if (s.w == null || t.done || !(t.w == null || t.auto)) continue;
+      t.w = s.w; t.auto = true;
+      const inp = r?.querySelector('input');
+      if (inp) inp.value = toDisplayW(t.w);
+    }
     save({ silent: true });
   };
-  wIn.addEventListener('change', () => {
-    sync();
-    // Show the carried-down weight in every later empty row.
-    let r = rowEl.nextElementSibling;
-    for (let j = si + 1; r?.classList.contains('set-row'); j++, r = r.nextElementSibling) {
-      const inp = r.querySelector('input');
-      if (!inp.value && en.sets[j].w != null) inp.value = toDisplayW(en.sets[j].w);
-    }
-  });
+  wIn.addEventListener('change', () => { s.auto = false; sync(); carryDown(); });
   rIn.addEventListener('change', sync);
   const check = h('button.check-btn', {
-    'aria-label': 'Complete set',
+    'aria-label': `Complete set ${si + 1}`,
     onclick: () => {
       if (!s.done) {
-        if (wIn.value === '') wIn.value = s.w != null ? toDisplayW(s.w) : wIn.placeholder;
+        if (wIn.value === '') wIn.value = s.w != null ? toDisplayW(s.w) : (wIn.placeholder === '–' ? '' : wIn.placeholder);
         if (rIn.value === '' && rIn.placeholder !== '') rIn.value = rIn.placeholder;
         sync();
         if (!s.r) { toast('Enter reps first'); return; }
@@ -373,39 +466,53 @@ function setRow(en, s, si, sug, last, ex) {
         unlockAudio();
         startRest(state.settings.restSec);
         const prevBest = bestE1rm(en.exId);
-        if (prevBest && !en.prToasted && e1rm(s.w || 0, s.r) > prevBest + 0.01) { en.prToasted = true; toast('🏆 New estimated 1RM!'); }
+        if (prevBest && !en.prToasted && e1rm(s.w || 0, s.r) > prevBest + 0.01) { en.prToasted = true; toast('New estimated 1RM!'); }
       } else s.done = false;
       rowEl.classList.toggle('done', s.done);
       save({ silent: true });
+      refresh();
     },
-  }, '✓');
-  rowEl.append(h('span.setno', si + 1), h('span.prev.small.muted', prev ? `${prev.w ? toDisplayW(prev.w) : 'BW'}×${prev.r}` : '–'), wIn, rIn, check);
+  }, icon('check', 18));
+  // Tapping "previous" copies last session's numbers into this set.
+  const prevBtn = h('button.prev', {
+    disabled: !prev,
+    onclick: () => { if (!prev || s.done) return; wIn.value = prev.w ? toDisplayW(prev.w) : ''; rIn.value = prev.r; s.auto = false; sync(); carryDown(); },
+  }, prev ? `${prev.w ? toDisplayW(prev.w) : 'BW'} × ${prev.r}` : '—');
+  rowEl.append(h('span.set-num', si + 1), prevBtn, wIn, rIn, check);
   return rowEl;
 }
 
 function exerciseMenu(w, en, idx, redraw) {
   const ex = getExercise(en.exId);
+  const item = (ic, label, fn, opts = {}) => h('button.menu-item' + (opts.danger ? '.danger' : ''), { disabled: opts.disabled, onclick: fn }, icon(ic, 20), h('span', label));
   const s = openSheet(ex.name, h('div.menu',
-    h('button.btn.ghost.wide', { onclick: () => { s.close(); pickExercise(ex.slot, nx => { en.exId = nx.id; en.reps = [...nx.reps]; save({ silent: true }); redraw(); }); } }, '⇄ Swap exercise'),
-    h('button.btn.ghost.wide', { disabled: idx === 0, onclick: () => { move(w.entries, idx, -1); save({ silent: true }); s.close(); redraw(); } }, '↑ Move up'),
-    h('button.btn.ghost.wide', { disabled: idx === w.entries.length - 1, onclick: () => { move(w.entries, idx, 1); save({ silent: true }); s.close(); redraw(); } }, '↓ Move down'),
-    h('button.btn.ghost.wide', { onclick: () => { s.close(); showHistory(en.exId); } }, '📈 History'),
-    h('button.btn.ghost.wide.danger-text', { onclick: () => { w.entries.splice(idx, 1); save({ silent: true }); s.close(); redraw(); } }, '✕ Remove from workout')));
+    item('swap', 'Replace exercise', () => { s.close(); pickExercise(ex.slot, nx => { en.exId = nx.id; en.reps = [...nx.reps]; save({ silent: true }); redraw(); }); }),
+    item('chart', 'History', () => { s.close(); showHistory(en.exId); }),
+    item('up', 'Move up', () => { move(w.entries, idx, -1); save({ silent: true }); s.close(); redraw(); }, { disabled: idx === 0 }),
+    item('down', 'Move down', () => { move(w.entries, idx, 1); save({ silent: true }); s.close(); redraw(); }, { disabled: idx === w.entries.length - 1 }),
+    item('x', 'Remove last set', () => { en.sets.pop(); save({ silent: true }); s.close(); redraw(); }, { disabled: en.sets.length <= 1 }),
+    item('trash', 'Remove exercise', () => { w.entries.splice(idx, 1); save({ silent: true }); s.close(); redraw(); }, { danger: true })));
 }
 
 export function showHistory(exId) {
   const hist = historyFor(exId);
-  openSheet(getExercise(exId).name, hist.length ? hist.slice(0, 30).map(x => h('div.entry',
-    h('div.grow', h('div', new Date(x.date + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })), h('div.small.muted', x.sets.map(s => `${s.w ? toDisplayW(s.w) : 'BW'}×${s.r}`).join(', '))),
-    h('div.small', `e1RM ${toDisplayW(Math.max(...x.sets.map(s => e1rm(s.w || 0, s.r)))) || '–'}`))) : h('p.muted', 'No history yet.'));
+  openSheet(getExercise(exId).name, hist.length ? h('div.card.flush', hist.slice(0, 30).map(x => h('div.list-row',
+    h('div.grow.row-main',
+      h('div.row-title', new Date(x.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })),
+      h('div.row-meta', x.sets.map(s => `${s.w ? toDisplayW(s.w) : 'BW'}×${s.r}`).join('  ·  '))),
+    h('div.right', h('div.num', fmt(toDisplayW(Math.max(...x.sets.map(s => e1rm(s.w || 0, s.r)))))), h('div.row-meta', 'e1RM'))))) : h('p.muted', 'No history yet.'));
 }
 
-function finish() {
+async function finish() {
   const w = state.active;
-  const entries = w.entries.map(en => ({ ...en, sets: en.sets.filter(s => s.done && s.r > 0) })).filter(en => en.sets.length);
+  const open = w.entries.reduce((n, en) => n + en.sets.filter(s => !s.done).length, 0);
+  if (open && w.entries.some(en => en.sets.some(s => s.done)) &&
+    !(await confirmSheet(`Finish with ${open} unchecked set${open > 1 ? 's' : ''}? They won't be saved.`, { ok: 'Finish workout' }))) return;
+  const entries = w.entries.map(en => ({ ...en, sets: en.sets.filter(s => s.done && s.r > 0).map(({ auto, ...s }) => s) })).filter(en => en.sets.length);
   if (!entries.length) { toast('Complete at least one set (tap ✓) before finishing'); return; }
   const prs = [];
   for (const en of entries) {
+    delete en.prToasted;
     const prev = bestE1rm(en.exId);
     const now = Math.max(...en.sets.map(s => e1rm(s.w || 0, s.r)));
     if (prev && now > prev + 0.01) prs.push({ exId: en.exId, e1rm: now });
@@ -417,13 +524,18 @@ function finish() {
   stopRest();
   save();
   location.replace('#/train');
-  openSheet('Workout complete 💪', [
-    h('div.macro-grid',
-      h('div.mstat', h('div.big', Math.round((done.end - done.start) / 60000)), h('div.small.muted', 'minutes')),
-      h('div.mstat', h('div.big', entries.reduce((a, e) => a + e.sets.length, 0)), h('div.small.muted', 'sets')),
-      h('div.mstat', h('div.big', fmt(toDisplayW(volume))), h('div.small.muted', `${unit()} volume`)),
-      h('div.mstat', h('div.big', prs.length), h('div.small.muted', 'PRs'))),
-    prs.length ? h('div', h('div.section-label', 'New personal records'), prs.map(p => h('div', `🏆 ${getExercise(p.exId).name} — e1RM ${fmtW(p.e1rm)}`))) : null,
+  const tile = (ic, v, l) => h('div.tile', icon(ic, 18), h('div.tile-v', v), h('div.tile-l', l));
+  openSheet('Workout complete', [
+    h('div.done-hero', h('div.done-badge', icon('check', 30)), h('h3', done.name), h('p.muted.small', new Date(done.start).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))),
+    h('div.tiles',
+      tile('clock', `${Math.round((done.end - done.start) / 60000)} min`, 'Duration'),
+      tile('dumbbell', entries.reduce((a, e) => a + e.sets.length, 0), 'Sets'),
+      tile('zap', `${fmt(toDisplayW(volume))}`, `Volume (${unit()})`),
+      tile('trophy', prs.length, 'Records')),
+    prs.length ? h('div', h('div.section-label', 'New personal records'), h('div.card.flush', prs.map(p => h('div.list-row',
+      h('div.pr-ic', icon('trophy', 18)),
+      h('div.grow.row-main', h('div.row-title', getExercise(p.exId).name), h('div.row-meta', 'New best estimated 1RM')),
+      h('div.num', fmtW(p.e1rm)))))) : null,
   ]);
 }
 
@@ -439,15 +551,16 @@ function drawRest() {
   if (!el) {
     el = h('div.rest',
       h('div.rest-fill'),
-      h('button.icon-btn', { onclick: () => { restEnd -= 15000; restTotal = Math.max(1, restTotal - 15); update(); } }, '−15'),
-      h('div.rest-time.grow'),
-      h('button.icon-btn', { onclick: () => { restEnd += 15000; restTotal += 15; update(); } }, '+15'),
-      h('button.btn.sm.ghost', { onclick: stopRest }, 'Skip'));
+      h('div.rest-ic', icon('timer', 18)),
+      h('div.grow', h('div.rest-time'), h('div.rest-l', 'Rest')),
+      h('button.rest-btn', { 'aria-label': 'Remove 15 seconds', onclick: () => { restEnd -= 15000; restTotal = Math.max(1, restTotal - 15); update(); } }, '−15'),
+      h('button.rest-btn', { 'aria-label': 'Add 15 seconds', onclick: () => { restEnd += 15000; restTotal += 15; update(); } }, '+15'),
+      h('button.rest-btn.skip', { onclick: stopRest }, 'Skip'));
     document.body.append(el);
   }
   function update() {
     const left = Math.max(0, Math.round((restEnd - Date.now()) / 1000));
-    el.querySelector('.rest-time').textContent = `Rest ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    el.querySelector('.rest-time').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
     el.querySelector('.rest-fill').style.width = `${(left / restTotal) * 100}%`;
     if (left <= 0) { beep(); navigator.vibrate?.([200, 100, 200]); stopRest(); }
   }

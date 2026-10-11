@@ -1,7 +1,8 @@
 // Food diary: daily totals, meals, add food via search / barcode / recent / custom / quick add.
 
 import { state, save, uid, ymd, addDays, parseYmd, dayEntries, dayTotals, targets, fmtW, fromDisplayW, toDisplayW, unit } from './store.js';
-import { h, fill, fmt, openSheet, toast, bar, confirmSheet } from './ui.js';
+import { h, fill, fmt, openSheet, toast, confirmSheet } from './ui.js';
+import { icon } from './icons.js';
 import { lookupBarcode, searchLocal, searchOnline } from './foodapi.js';
 import { mountScanner, scanFile } from './scanner.js';
 
@@ -9,36 +10,65 @@ const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
 let viewDate = null; // null = always today
 document.addEventListener('visibilitychange', () => { if (!document.hidden && location.hash.startsWith('#/food')) { const v = document.getElementById('view'); if (v) renderToday(v); } });
 
+const MEAL_ICONS = { Breakfast: 'sunrise', Lunch: 'sun', Dinner: 'moon', Snacks: 'apple' };
+const num = n => Math.round(n || 0).toLocaleString();
+
+// Ring shows calories left by default; tap it to show calories eaten (remembered per device).
+let ringMode = 'left';
+try { ringMode = localStorage.getItem('forge.ringMode') || 'left'; } catch {}
+
 export function renderToday(root) {
   const date = viewDate || ymd();
   const t = dayTotals(date), tg = targets();
   const remaining = tg.kcal - t.kcal;
-  const pct = Math.min(1, t.kcal / (tg.kcal || 1));
   const today = ymd();
 
-  fill(root, 
+  fill(root,
     h('div.datebar',
-      h('button.icon-btn', { onclick: () => { viewDate = addDays(date, -1); rerender(root); }, 'aria-label': 'Previous day' }, '‹'),
-      h('button.datebtn', { onclick: () => { viewDate = null; rerender(root); } }, dateLabel(date)),
-      h('button.icon-btn', { onclick: () => { const n = addDays(date, 1); viewDate = n >= ymd() ? null : n; rerender(root); }, 'aria-label': 'Next day', disabled: date >= today }, '›')),
+      h('button.icon-btn', { onclick: () => { viewDate = addDays(date, -1); rerender(root); }, 'aria-label': 'Previous day' }, icon('left', 22)),
+      h('button.datepill', { onclick: () => { viewDate = null; rerender(root); } }, icon('calendar', 16), dateLabel(date)),
+      h('button.icon-btn', { onclick: () => { const n = addDays(date, 1); viewDate = n >= ymd() ? null : n; rerender(root); }, 'aria-label': 'Next day', disabled: date >= today }, icon('right', 22))),
 
     h('section.card.summary',
-      h('div.ring', { style: { '--p': pct, '--c': remaining < 0 ? 'var(--bad)' : 'var(--accent)' } },
-        h('div.ring-inner',
-          h('div.big', fmt(Math.abs(remaining))),
-          h('div.muted.small', remaining < 0 ? 'kcal over' : 'kcal left'))),
-      h('div.summary-side',
-        h('div.kv', h('span.muted', 'Eaten'), h('b', fmt(t.kcal))),
-        h('div.kv', h('span.muted', 'Target'), h('b', fmt(tg.kcal))),
-        bar('Protein', t.protein, tg.protein, 'g', 'p'),
-        bar('Carbs', t.carbs, tg.carbs, 'g', 'c'),
-        bar('Fat', t.fat, tg.fat, 'g', 'f'))),
+      h('button.ring-btn', {
+        'aria-label': `${num(Math.abs(remaining))} kcal ${remaining < 0 ? 'over' : 'left'}, ${num(t.kcal)} eaten. Tap to switch view.`,
+        onclick: () => { ringMode = ringMode === 'left' ? 'eaten' : 'left'; try { localStorage.setItem('forge.ringMode', ringMode); } catch {} rerender(root); },
+      }, ring(t.kcal / (tg.kcal || 1), remaining < 0),
+        h('div.ring-center',
+          h('div.ring-num', ringMode === 'left' ? num(Math.abs(remaining)) : num(t.kcal)),
+          h('div.ring-l', ringMode === 'left' ? (remaining < 0 ? 'kcal over' : 'kcal left') : `of ${num(tg.kcal)} kcal`))),
+      h('div.macros',
+        macroRow('Protein', 'p', t.protein, tg.protein),
+        macroRow('Carbs', 'c', t.carbs, tg.carbs),
+        macroRow('Fat', 'f', t.fat, tg.fat))),
+    h('div.kcal-eq',
+      eqItem(num(tg.kcal), 'Target'), h('span.eq-op', '−'), eqItem(num(t.kcal), 'Eaten'), h('span.eq-op', '='),
+      eqItem(num(remaining), 'Left', remaining < 0 ? 'bad' : 'good')),
 
     installTip(root),
     weightCard(root, date),
 
     ...MEALS.map(meal => mealCard(root, date, meal)),
   );
+}
+
+function ring(pct, over) {
+  const r = 52, c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(1, pct));
+  const svg = `<svg viewBox="0 0 120 120" class="ring-svg"><circle cx="60" cy="60" r="${r}" class="ring-track"/>` +
+    `<circle cx="60" cy="60" r="${r}" class="ring-bar${over ? ' over' : ''}" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 60 60)"/></svg>`;
+  return h('div', { html: svg });
+}
+
+function macroRow(label, cls, v, target) {
+  const pct = target > 0 ? Math.min(100, (v / target) * 100) : 0;
+  return h(`div.macro.${cls}`,
+    h('div.macro-top', h('span.macro-name', h('i.dot'), label), h('span.macro-v', h('b', Math.round(v || 0)), ` / ${Math.round(target)}g`)),
+    h('div.track', h('div.fill', { style: { width: pct + '%' } })));
+}
+
+function eqItem(v, l, cls = '') {
+  return h('div.eq' + (cls ? '.' + cls : ''), h('b', v), h('span', l));
 }
 
 function rerender(root) { renderToday(root); }
@@ -57,17 +87,18 @@ function installTip(root) {
   try { hidden = localStorage.getItem('forge.hideInstall') === '1'; } catch {}
   if (standalone || hidden) return null;
   const ios = /iPhone|iPad/.test(navigator.userAgent);
-  return h('section.card.row.gap.center.tip',
-    h('div.grow.small', h('b', 'Install Forge: '), ios ? 'tap Share → "Add to Home Screen". ' : 'use your browser menu → "Install app" / "Add to Home screen". ',
-      h('span.muted', 'It opens full-screen and keeps your data safe.')),
-    h('button.icon-btn', { 'aria-label': 'Dismiss', onclick: () => { try { localStorage.setItem('forge.hideInstall', '1'); } catch {} rerender(root); } }, '✕'));
+  return h('section.card.tip',
+    h('div.tip-ic', icon('download', 18)),
+    h('div.grow.small', h('b', 'Install Forge'), h('div.muted', ios ? 'Tap Share → "Add to Home Screen" so it opens full-screen and your data stays safe.' : 'Use your browser menu → "Install app" so it opens full-screen and your data stays safe.')),
+    h('button.icon-btn', { 'aria-label': 'Dismiss', onclick: () => { try { localStorage.setItem('forge.hideInstall', '1'); } catch {} rerender(root); } }, icon('x', 18)));
 }
 
 function weightCard(root, date) {
   const kg = state.weights[date];
-  const input = h('input.input', { type: 'number', inputmode: 'decimal', step: '0.1', placeholder: unit(), value: kg != null ? toDisplayW(kg) : '' });
-  return h('section.card.row.gap.center.weigh',
-    h('div.grow', h('div.small.muted', 'Weigh-in'), kg != null ? h('b', fmtW(kg)) : h('span.muted', 'Not logged')),
+  const input = h('input.input.weigh-in', { type: 'number', inputmode: 'decimal', step: '0.1', placeholder: unit(), 'aria-label': `Body weight in ${unit()}`, value: kg != null ? toDisplayW(kg) : '' });
+  return h('section.card.weigh',
+    h('div.tip-ic.weigh-ic', icon('scale', 18)),
+    h('div.grow', h('div.row-title', 'Weigh-in'), h('div.row-meta', kg != null ? `Logged ${fmtW(kg)}` : 'Not logged yet')),
     input,
     h('button.btn.sm', {
       onclick: () => {
@@ -80,21 +111,24 @@ function weightCard(root, date) {
 
 function mealCard(root, date, meal) {
   const entries = (state.diary[date] || []).filter(e => e.meal === meal);
-  const kcal = entries.reduce((s, e) => s + (e.kcal || 0), 0);
+  const sum = k => entries.reduce((s, e) => s + (e[k] || 0), 0);
+  const canCopy = !entries.length && (state.diary[addDays(date, -1)] || []).some(e => e.meal === meal);
   return h('section.card.meal',
     h('div.meal-head',
-      h('h3', meal),
-      h('span.muted', entries.length ? `${fmt(kcal)} kcal` : ''),
-      h('div.grow'),
-      entries.length || !(state.diary[addDays(date, -1)] || []).some(e => e.meal === meal) ? null : h('button.btn.ghost.sm', { onclick: () => copyMeal(date, meal) }, 'Copy yesterday'),
-      h('button.btn.sm', { onclick: () => openAddFood(date, meal) }, '+ Add')),
-    entries.map(e => h('button.entry', { onclick: () => openEntry(e, date) },
+      h(`div.meal-ic.m-${meal.toLowerCase()}`, icon(MEAL_ICONS[meal], 18)),
       h('div.grow',
-        h('div', e.name),
-        h('div.muted.small', [e.brand, e.amountLabel].filter(Boolean).join(' · '))),
-      h('div.right',
-        h('div', fmt(e.kcal)),
-        h('div.muted.small', `${fmt(e.protein)}P ${fmt(e.carbs)}C ${fmt(e.fat)}F`)))));
+        h('div.meal-name', meal),
+        entries.length ? h('div.row-meta', `P ${Math.round(sum('protein'))}g · C ${Math.round(sum('carbs'))}g · F ${Math.round(sum('fat'))}g`) : h('div.row-meta', 'Nothing logged')),
+      entries.length ? h('div.meal-kcal', h('b', num(sum('kcal'))), h('span', 'kcal')) : null),
+    entries.length ? h('div.food-list', entries.map(e => h('button.food-row', { onclick: () => openEntry(e, date) },
+      h('div.grow',
+        h('div.food-name', e.name),
+        h('div.row-meta', [e.amountLabel, e.brand].filter(Boolean).join(' · '))),
+      h('div.food-kcal', num(e.kcal))))) : null,
+    h('div.meal-foot',
+      h('button.add-food', { onclick: () => openAddFood(date, meal) }, icon('plus', 18), 'Add food'),
+      canCopy ? h('button.foot-btn', { onclick: () => copyMeal(date, meal) }, icon('copy', 16), 'Copy yesterday') : null,
+      h('button.foot-icon', { 'aria-label': `Scan a barcode for ${meal}`, onclick: () => openAddFood(date, meal, 'Scan') }, icon('barcode', 20))));
 }
 
 function copyMeal(date, meal) {
@@ -107,9 +141,10 @@ function copyMeal(date, meal) {
 
 // ---------- add food ----------
 
-export function openAddFood(date, meal) {
+export function openAddFood(date, meal, startTab = 'Search') {
   const tabs = ['Search', 'Scan', 'Recent', 'My foods', 'Quick add'];
-  let active = 'Search', scanner = null;
+  const TAB_ICONS = { Search: 'search', Scan: 'barcode', Recent: 'clock', 'My foods': 'user', 'Quick add': 'zap' };
+  let active = startTab, scanner = null;
   const content = h('div');
   const tabBar = h('div.tabs');
   const sheet = openSheet(`Add to ${meal}`, [tabBar, content], { full: true, onClose: () => scanner?.stop() });
@@ -117,11 +152,11 @@ export function openAddFood(date, meal) {
   function show(tab) {
     scanner?.stop(); scanner = null;
     active = tab;
-    fill(tabBar, ...tabs.map(t => h('button.tab' + (t === active ? '.on' : ''), { onclick: () => show(t) }, t)));
+    fill(tabBar, ...tabs.map(t => h('button.tab' + (t === active ? '.on' : ''), { onclick: () => show(t) }, icon(TAB_ICONS[t], 15), t)));
     if (tab === 'Search') fill(content, searchPane());
     if (tab === 'Scan') fill(content, scanPane());
     if (tab === 'Recent') fill(content, listPane(recentFoods(), 'Foods you log will show up here.'));
-    if (tab === 'My foods') fill(content, h('button.btn.wide', { onclick: () => openFoodEditor(null, f => pick(f)) }, '+ Create custom food'),
+    if (tab === 'My foods') fill(content, h('button.btn.soft.wide', { onclick: () => openFoodEditor(null, f => pick(f)) }, icon('plus', 18), 'Create custom food'),
       listPane(Object.values(state.foods).filter(f => f.custom).sort((a, b) => a.name.localeCompare(b.name)), 'No custom foods yet.'));
     if (tab === 'Quick add') fill(content, quickAddPane());
   }
@@ -143,13 +178,22 @@ export function openAddFood(date, meal) {
   }
 
   function searchPane() {
-    const input = h('input.input.wide', { type: 'search', placeholder: 'Search foods (e.g. "greek yogurt", "chicken breast")', enterkeyhint: 'search' });
+    const input = h('input.input.wide.search-in', { type: 'search', placeholder: 'Search foods, e.g. "greek yogurt"', enterkeyhint: 'search' });
     const results = h('div');
     let ctrl, timer;
+    // Before typing: show recent foods, or a hint pointing at the scanner.
+    function idle() {
+      const recent = recentFoods().slice(0, 12);
+      fill(results, recent.length
+        ? [h('div.section-label', 'Recent'), h('div.list', recent.map(foodRow))]
+        : h('div.search-empty', icon('search', 28), h('p', 'Search generic foods (USDA) and branded products (Open Food Facts).'),
+          h('button.btn.soft', { onclick: () => show('Scan') }, icon('barcode', 18), 'Scan a barcode instead')));
+    }
+    idle();
     async function run() {
       const q = input.value.trim();
       ctrl?.abort();
-      if (q.length < 2) { fill(results); return; }
+      if (q.length < 2) { idle(); return; }
       const local = searchLocal(q);
       const localSec = local.length ? [h('div.section-label', 'Your foods'), h('div.list', local.map(foodRow))] : [];
       fill(results, ...localSec, h('p.muted.pad', 'Searching online…'));
@@ -212,7 +256,7 @@ export function openAddFood(date, meal) {
     return h('div',
       cam, status,
       h('div.row.gap', manual, h('button.btn', { onclick: () => manual.value.trim() && handle(manual.value.replace(/\D/g, '')) }, 'Look up')),
-      h('button.btn.ghost.wide', { style: { marginTop: '10px' }, onclick: () => fileIn.click() }, '📷 Scan from a photo instead'),
+      h('button.btn.ghost.wide', { style: { marginTop: '10px' }, onclick: () => fileIn.click() }, icon('camera', 18), 'Scan from a photo instead'),
       fileIn);
   }
 

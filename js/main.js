@@ -3,6 +3,7 @@ import { renderToday } from './nutrition.js';
 import { renderTrain, renderWorkout, setNavigator } from './train.js';
 import { renderProgress } from './progress.js';
 import { renderSettings } from './settings.js';
+import { icon } from './icons.js';
 
 const routes = {
   '#/food': { title: 'Food', render: renderToday },
@@ -13,6 +14,7 @@ const routes = {
 };
 
 const view = document.getElementById('view');
+document.querySelectorAll('nav a').forEach(a => a.prepend(icon(a.dataset.ic, 24)));
 const title = document.getElementById('title');
 
 function current() { return routes[location.hash] ? location.hash : '#/food'; }
@@ -21,6 +23,7 @@ function render() {
   const key = current();
   const r = routes[key];
   title.textContent = r.title;
+  document.body.dataset.route = key.slice(2);
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === (r.nav || key)));
   document.querySelector('nav a[href="#/train"]').classList.toggle('live', !!state.active);
   r.render(view);
