@@ -3,6 +3,7 @@
 import { state, save, uid, ymd, addDays, parseYmd, dayEntries, dayTotals, targets, fmtW, fromDisplayW, toDisplayW, unit } from './store.js';
 import { h, fill, fmt, openSheet, toast, confirmSheet } from './ui.js';
 import { icon } from './icons.js';
+import { isInstalled, canPrompt, startInstall } from './install.js';
 import { lookupBarcode, searchLocal, searchOnline } from './foodapi.js';
 import { mountScanner, scanFile } from './scanner.js';
 
@@ -82,14 +83,13 @@ function dateLabel(d) {
 
 // Safari can clear data for sites not added to the Home Screen, so nudge people to install.
 function installTip(root) {
-  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   let hidden = false;
   try { hidden = localStorage.getItem('forge.hideInstall') === '1'; } catch {}
-  if (standalone || hidden) return null;
-  const ios = /iPhone|iPad/.test(navigator.userAgent);
+  if (isInstalled() || hidden) return null;
   return h('section.card.tip',
     h('div.tip-ic', icon('download', 18)),
-    h('div.grow.small', h('b', 'Install Forge'), h('div.muted', ios ? 'Tap Share → "Add to Home Screen" so it opens full-screen and your data stays safe.' : 'Use your browser menu → "Install app" so it opens full-screen and your data stays safe.')),
+    h('div.grow.small', h('b', 'Install Forge'), h('div.muted', 'Opens full-screen like a real app and keeps your data safe.')),
+    h('button.btn.sm', { onclick: startInstall }, canPrompt() ? 'Install' : 'How?'),
     h('button.icon-btn', { 'aria-label': 'Dismiss', onclick: () => { try { localStorage.setItem('forge.hideInstall', '1'); } catch {} rerender(root); } }, icon('x', 18)));
 }
 

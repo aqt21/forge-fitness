@@ -1,9 +1,9 @@
 // Offline support. App files are fetched network-first (so updates appear on the next
 // open) and fall back to the cache when offline. Food-database requests are never cached.
-const CACHE = 'forge-v3';
+const CACHE = 'forge-v4';
 const APP = ['./', './index.html', './styles.css', './manifest.webmanifest', './icon.svg', './icon-192.png',
   './js/main.js', './js/store.js', './js/ui.js', './js/nutrition.js', './js/foodapi.js', './js/scanner.js',
-  './js/train.js', './js/generator.js', './js/exercises.js', './js/progress.js', './js/settings.js', './js/icons.js'];
+  './js/train.js', './js/generator.js', './js/exercises.js', './js/progress.js', './js/settings.js', './js/icons.js', './js/install.js'];
 const SCANNER = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
 
 self.addEventListener('install', e => {

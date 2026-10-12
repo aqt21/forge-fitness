@@ -491,3 +491,6 @@ button.list-row:active, .list-row > button.row-main:active { background: var(--r
 .search-empty .ic { color: var(--faint); }
 .sheet-body .tabs + div > .input { margin-bottom: 4px; }
 .target-last { font-size: 12px; color: var(--faint); margin-top: 2px; }
+.steps { list-style: none; padding: 0; margin: 12px 0; }
+.steps li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-weight: 550; }
+.tip .btn.sm { flex: none; }

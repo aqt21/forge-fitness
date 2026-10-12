@@ -1,3 +1,4 @@
+import { onInstallChange } from './install.js'; // first, so the install event is never missed
 import { state, onChange } from './store.js';
 import { renderToday } from './nutrition.js';
 import { renderTrain, renderWorkout, setNavigator } from './train.js';
@@ -38,6 +39,7 @@ setNavigator(go);
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 // The live workout view manages its own redraws so inputs keep focus.
 onChange(() => { if (current() !== '#/workout') render(); });
+onInstallChange(() => { if (['#/food', '#/settings'].includes(current())) render(); });
 render();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

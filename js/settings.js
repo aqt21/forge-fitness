@@ -3,6 +3,7 @@
 import { state, save, computeTargets, weightOn, toDisplayW, unit, replaceState, resetState, ymd } from './store.js';
 import { h, fill, fmt, toast, confirmSheet } from './ui.js';
 import { icon } from './icons.js';
+import { isInstalled, startInstall } from './install.js';
 
 export function renderSettings(root) {
   const s = state.settings;
@@ -88,6 +89,7 @@ export function renderSettings(root) {
     h('section.card.form',
       h('h3', icon('download', 18), 'Your data'),
       h('p.small.muted', 'Everything is stored only on this device, in this browser. Export a backup regularly — clearing browser data deletes it.'),
+      isInstalled() ? null : h('button.btn.soft.wide', { onclick: startInstall }, icon('download', 18), 'Install Forge as an app'),
       h('div.row.gap',
         h('button.btn.grow', {
           onclick: async () => {
